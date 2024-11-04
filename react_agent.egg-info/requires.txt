@@ -1,0 +1,17 @@
+llama-index
+groq
+llama_deploy
+qdrant_client
+llama-index-llms-groq
+accelerate
+optimum
+auto-gptq
+pyvis
+llama-index-callbacks-langfuse
+arize-phoenix
+langfuse==2.51.5
+dspy-ai
+llama-index-llms-llama-cpp
+llama-index-llms-groq
+gradio
+llama-index-embeddings-huggingface
