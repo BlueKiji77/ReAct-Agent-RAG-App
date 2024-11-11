@@ -1,5 +1,5 @@
 from src import Config
-from llama_deploy import deploy_workflow, WorkflowServiceConfig, ControlPlaneConfig
+from llama_deploy import deploy_workflow, deploy_core, WorkflowServiceConfig, ControlPlaneConfig, SimpleMessageQueueConfig
 from src import ReActAgent
 from src.utils import download_10k_reports
 from src.utils import load_hf_model
@@ -11,11 +11,66 @@ from llama_index.core.postprocessor import SimilarityPostprocessor
 from llama_index.postprocessor.colbert_rerank import ColbertRerank
 from llama_index.core.tools import QueryEngineTool, ToolMetadata
 from llama_index.core.indices.vector_store.retrievers import VectorIndexRetriever
+from dataclasses import dataclass
+from typing import Optional
+import argparse
+from dotenv import load_dotenv
 
-async def main(local_model=False):
+@dataclass
+class DeploymentConfig:
+    local_model: bool = False
+    host: str = "localhost"
+    port: int = 8000
+    service_name: str = "react_workflow"
+
+def parse_arguments() -> DeploymentConfig:
+    """Parse command line arguments and return DeploymentConfig."""
+    parser = argparse.ArgumentParser(description='Deploy the workflow service with custom configuration.')
+    
+    parser.add_argument('--local-model', 
+                       action='store_true',
+                       help='Use local model instead of Groq')
+    
+    parser.add_argument('--host',
+                       type=str,
+                       default="localhost",
+                       help='Host address for the service (default: localhost)')
+    
+    parser.add_argument('--port',
+                       type=int,
+                       default=8000,
+                       help='Port number for the service (default: 8000)')
+    
+    parser.add_argument('--service-name',
+                       type=str,
+                       default="react_worflow",
+                       help='Name of the service (default: my_workflow)')
+    
+    args = parser.parse_args()
+    
+    return DeploymentConfig(
+        local_model=args.local_model,
+        host=args.host,
+        port=args.port,
+        service_name=args.service_name
+    )
+
+async def server(deployment_config: Optional[DeploymentConfig] = None) -> None:
+    """
+    Main function to set up and deploy the workflow.
+    
+    Args:
+        deployment_config (Optional[DeploymentConfig]): Configuration for deployment.
+            If None, default values will be used.
+    """
+    if deployment_config is None:
+        deployment_config = DeploymentConfig()
+
     download_10k_reports()
     config = Config()
-    if local_model:
+    
+    # Model initialization based on local_model flag
+    if deployment_config.local_model:
         hf_models = load_hf_model(config.hf_tiny_model, config.hf_embed_model)
     else:
         hf_models = load_hf_model(config.hf_tiny_model, config.hf_embed_model, embed_model_only=True)
@@ -25,9 +80,6 @@ async def main(local_model=False):
     indices = setup_indices(hf_models['embed_model'])
     lyft_index = indices['lyft_index']
     uber_index = indices['uber_index']
-
-    # lyft_retriever = HybridRetriver(index=lyft_index, vector_similarity_top_k=20, bm25_similarity_top_k=20, fusion_similarity_top_k=20, llm=groq_llama_8b)
-    # uber_retriever = HybridRetriver(index=uber_index, vector_similarity_top_k=20, bm25_similarity_top_k=20, fusion_similarity_top_k=20, llm=groq_llama_8b)
     
     lyft_retriever = VectorIndexRetriever(index=lyft_index, similarity_top_k=20)
     uber_retriever = VectorIndexRetriever(index=uber_index, similarity_top_k=20)
@@ -84,17 +136,38 @@ async def main(local_model=False):
             ),
         ),
     ]
-    # await deploy_workflow(
-    #     ReActAgent(
-    #         llm=groq_llama_8b,
-    #         tools=query_engine_tools,
-    #         timeout=120,
-    #         verbose=False
-    #     ),
-    #     WorkflowServiceConfig(host="127.0.0.1", port=8000, service_name="my_workflow"),
-    #     ControlPlaneConfig(host="127.0.0.1", port=8000),
-    # )
+    
+    await deploy_core(
+        control_plane_config=ControlPlaneConfig(
+            host=deployment_config.host,
+            port=deployment_config.port
+        ),
+        message_queue_config=SimpleMessageQueueConfig(),
+    )
+    
+    await deploy_workflow(
+        ReActAgent(
+            llm=groq_llama_8b,
+            tools=query_engine_tools,
+            timeout=400,
+            verbose=False
+        ),
+        WorkflowServiceConfig(
+            host=deployment_config.host,
+            port=deployment_config.port,
+            service_name=deployment_config.service_name
+        ),
+        ControlPlaneConfig(
+            host=deployment_config.host,
+            port=deployment_config.port
+        ),
+    )
 
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(main())
+    
+    # Parse command line arguments
+    config = parse_arguments()
+    
+    # Run with parsed config
+    asyncio.run(server(config))

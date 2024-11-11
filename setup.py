@@ -22,7 +22,8 @@ setup(
         "dspy-ai",
         "llama-index-llms-llama-cpp",
         "llama-index-llms-groq",
-        "gradio",
+        "chainlit",
+        "aiohttp",
         "llama-index-embeddings-huggingface"
     ],
 )
