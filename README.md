@@ -1,0 +1,2 @@
+- RAG with ReACT response synthesis.
+- Async Deployment and Chainlit frontend
